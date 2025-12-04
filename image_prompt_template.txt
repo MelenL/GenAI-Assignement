@@ -1,0 +1,8 @@
+generate a symbolic image that serves as a tiny clue for a black story.
+
+requirements:
+- avoid clear environments
+- hint at the theme subtly using color + texture only
+- must not reveal the solution
+- dark, mysterious, minimal
+- style: {image_keywords_from_topic}
