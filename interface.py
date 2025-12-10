@@ -2,8 +2,23 @@ import gradio as gr
 import time
 import random
 import os
+import logging
+import traceback
 
-from art.main import generate_story_assets
+# Try to import your actual backend
+try:
+    from art.main import generate_story_assets
+except ImportError:
+    print("WARNING: 'art.main' not found. Using mock generator.")
+    def generate_story_assets(topic, summary, hidden_story):
+        time.sleep(2) 
+        return "C:\\Eu\\Facultate\\EIT\\1_1\\GenAI\\GenAI-Assignement\\outputs\\images\\card_20251210_154532.png", "C:\\Eu\\Facultate\\EIT\\1_1\\GenAI\\GenAI-Assignement\\outputs\\audio\\audio_20251210_154532.wav", "Mock generation complete."
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("debug.log", encoding="utf-8")]
+)
 
 # ==========================================
 # 1. MOCK STORY DATABASE
@@ -28,16 +43,16 @@ STORY_DB = {
 }
 
 class MockStoryEngine:
-    """Handles the text logic (Question/Answer) only."""
-    
-    def get_story(self, topic):
-        data = STORY_DB.get(topic, STORY_DB["Modern Crime"])
-        return data["summary"], data["hidden_full_story"]
+    def get_story(self, topic, options=None):
+        if topic in STORY_DB:
+            data = STORY_DB[topic]
+            return data["summary"], data["hidden_full_story"]
+        else:
+            return "No story found for this topic.", "N/A"
 
     def analyze_question(self, question, full_story):
         q_lower = question.lower()
         story_lower = full_story.lower()
-        
         if "murder" in q_lower:
             return "No" if "murder" not in story_lower and "killed" not in story_lower else "Yes"
         elif "suicide" in q_lower:
@@ -53,79 +68,86 @@ story_engine = MockStoryEngine()
 # 2. GRADIO APP LOGIC
 # ==========================================
 
-def switch_to_game_view():
+def init_game_ui():
     """
-    Step 1: Just handle the layout switch.
-    This runs instantly so the DOM is ready for data.
+    STEP 1: Pure Layout Switch.
+    This runs instantly to force the browser to render the empty Image/Audio components.
     """
     return (
         gr.update(visible=False), # Hide Setup
-        gr.update(visible=True)   # Show Game
+        gr.update(visible=True),  # Show Game
+        gr.update(value=None),    # Clear Image (Placeholder)
+        gr.update(value=None),    # Clear Audio (Placeholder)
+        "Loading case files..."   # Temporary text
     )
 
-def load_case_data(topic, difficulty):
+def generate_case_data(topic, difficulty, progress=gr.Progress()):
     """
-    Step 2: Load the actual heavy data.
+    STEP 2: Heavy Lifting & Data Injection.
+    This runs AFTER the UI is visible.
     """
     print(f"\n--- Loading Case: {topic} ---")
+    progress(0.1, desc="Consulting Archive...")
+    time.sleep(0.5) 
     
-    # A. Get Story Text
+    # A. Get Story
     summary, hidden_story = story_engine.get_story(topic)
     
-    # B. HARDCODED PATHS - to not use gemini
-    # img_path, audio_path, logs = generate_story_assets(topic, summary, hidden_story)
-    img_path = "./art/gemini_dark_story.png"
-    audio_path = "./art/gemini_story_theme.wav"
-    
-    # Validate files to prevent silent failures
-    if not os.path.exists(img_path):
-        print(f"[Warning] Image missing: {img_path}")
-        img_path = None
-    if not os.path.exists(audio_path):
-        print(f"[Warning] Audio missing: {audio_path}")
-        audio_path = None 
+    # B. Generate Assets
+    progress(0.3, desc="Generating Visuals & Audio...")
+    img_path, audio_path, logs = None, None, ""
 
-    # C. Prepare UI Data
+    try:
+        img_path, audio_path, logs = generate_story_assets(topic, summary, hidden_story)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("ERROR IN GENERATION:", tb)
+        logs = f"Error: generate_story_assets crashed.\n{str(e)}"
+
+    progress(0.8, desc="Verifying Evidence...")
+    
+    # Absolute Path Enforcement
+    final_img = os.path.abspath(img_path) if img_path and os.path.exists(img_path) else None
+    final_audio = os.path.abspath(audio_path) if audio_path and os.path.exists(audio_path) else None
+
+    # C. Prepare Text
     case_display_text = f"""
     # 🕵️‍♂️ Case File: {topic}
     ### **Difficulty:** {difficulty}
     
     > {summary}
     """
+    if logs and "Error" in logs:
+        case_display_text += f"\n\n---\n\n⚠️ **System Alert:**\n```\n{logs}\n```"
+    
+    progress(1.0, desc="Investigation Ready")
     
     return (
-        gr.update(value=img_path),                  # Image
-        gr.update(value=audio_path, autoplay=True), # Audio
-        audio_path,                                 # Audio State
-        case_display_text,                          # Text
-        hidden_story,                               # Hidden State
-        []                                          # Chat Reset
+        gr.update(value=final_img),                    # Update Image
+        gr.update(value=final_audio, autoplay=True),   # Update Audio
+        final_audio,                                   # Save Audio State
+        case_display_text,                             # Update Text
+        hidden_story,                                  # Save Story State
+        []                                             # Reset Chat
     )
 
 def process_question(user_input, history, hidden_story):
-    if not user_input:
-        return "", history
-
+    if not user_input: return "", history
     ai_answer = story_engine.analyze_question(user_input, hidden_story)
     time.sleep(0.3) 
-    
     history = history or []
     history.append({"role": "user", "content": user_input})
     history.append({"role": "assistant", "content": ai_answer})
-    
     return "", history
 
 def toggle_audio(current_path_state, audio_component_value):
-    """
-    Toggles audio playback.
-    """
     if audio_component_value is not None:
         return None, "🔇 Audio Off (Click to Play)"
     else:
         return current_path_state, "🔊 Audio On (Click to Mute)"
 
 # ==========================================
-# 3. CSS (Layout Only)
+# 3. CSS & LAYOUT
 # ==========================================
 js_scroll_chat = """
 (args) => { 
@@ -139,34 +161,18 @@ js_scroll_chat = """
 
 custom_css = """
 <style>
-/* Flex Layout for Right Column */
 #right_col { display: flex !important; flex-direction: column !important; }
 #chatbot { flex-grow: 1 !important; min-height: 500px !important; }
-
-/* Hide Scrollbar */
 #chatbot *::-webkit-scrollbar { display: none; }
 #chatbot * { -ms-overflow-style: none; scrollbar-width: none; }
-
-/* Invisible Audio Player (Rendered but Hidden) */
-#invisible_audio {
-    height: 0px !important;
-    width: 0px !important;
-    opacity: 0;
-    overflow: hidden;
-    position: absolute;
-    z-index: -1;
-}
+#invisible_audio { height: 0px !important; width: 0px !important; opacity: 0; overflow: hidden; position: absolute; z-index: -1; }
 </style>
 """
-
-# ==========================================
-# 4. UI LAYOUT
-# ==========================================
 
 with gr.Blocks(title="Dark Stories AI") as demo:
     gr.HTML(custom_css)
     
-    # State
+    # State Variables
     hidden_story_state = gr.State()
     audio_path_state = gr.State()
 
@@ -174,95 +180,61 @@ with gr.Blocks(title="Dark Stories AI") as demo:
     with gr.Column(visible=True) as setup_group:
         gr.Markdown("# 🔍 AI-Driven Dynamic Detective Simulator")
         gr.Markdown("### Initialize Investigation")
-        
         with gr.Row():
-            topic_input = gr.Dropdown(
-                ["Modern Crime", "Cyberpunk", "Medieval", "80s Horror"], 
-                label="Setting", value="80s Horror"
-            )
-            diff_input = gr.Dropdown(
-                ["Rookie", "Detective", "Sherlock"], 
-                label="Difficulty", value="Detective"
-            )
-        
+            topic_input = gr.Dropdown(["Modern Crime", "Cyberpunk", "Medieval", "80s Horror"], label="Setting", value="80s Horror")
+            diff_input = gr.Dropdown(["Rookie", "Detective", "Sherlock"], label="Difficulty", value="Detective")
         start_btn = gr.Button("📂 Generate New Case", variant="primary", size="lg")
 
     # --- GAME SCREEN ---
     with gr.Row(visible=False, equal_height=True) as game_group:
-        
-        # LEFT COLUMN
         with gr.Column(scale=1):
             case_summary = gr.Markdown("Waiting for case file...")
-            
             with gr.Row():
-                # Audio Controls
                 audio_btn = gr.Button("🔊 Audio On (Click to Mute)", size="sm", variant="secondary")
-                
-                # Audio Component (Hidden via CSS)
-                case_audio = gr.Audio(
-                    visible=True, 
-                    interactive=False, 
-                    autoplay=True,
-                    type="filepath",
-                    elem_id="invisible_audio" 
-                )
+                case_audio = gr.Audio(visible=True, interactive=False, autoplay=True, type="filepath", elem_id="invisible_audio")
+            case_image = gr.Image(label="Visual Evidence", interactive=False, type="filepath", height=500)
 
-            case_image = gr.Image(
-                label="Visual Evidence", interactive=False, type="filepath", height=500
-            )
-
-        # RIGHT COLUMN
         with gr.Column(scale=1, elem_id="right_col"):
             gr.Markdown("### 🗣️ Interrogation Log")
             chatbot = gr.Chatbot(label="Detective's Notes", elem_id="chatbot")
-            
             with gr.Row():
                 msg_input = gr.Textbox(show_label=False, placeholder="Type your question here...", scale=9, container=False)
                 submit_btn = gr.Button("➤", variant="primary", scale=1, min_width=0)
 
-    # --- EVENT LISTENERS ---
+    # --- CRITICAL EVENT CHAINING ---
     
-    # CRITICAL FIX: Chained events to solve "Double Click" issue
-    # 1. Switch View (Instant) -> 2. Load Data (After view is rendered)
+    # 1. First Click: Switch Views ONLY (Fast)
+    # This forces the browser to paint the 'game_group' and the image/audio containers.
     start_btn.click(
-        fn=switch_to_game_view,
+        fn=init_game_ui,
         inputs=None,
-        outputs=[setup_group, game_group]
+        outputs=[
+            setup_group,  # Hide Setup
+            game_group,   # Show Game
+            case_image,   # Reset Image
+            case_audio,   # Reset Audio
+            case_summary  # Reset Text
+        ],
+        queue=False       # Run immediately
     ).then(
-        fn=load_case_data,
+        # 2. Then: Generate Data (Slow)
+        # Now that the components are visible on screen, we push the data into them.
+        fn=generate_case_data,
         inputs=[topic_input, diff_input],
         outputs=[
-            case_image, 
-            case_audio, 
-            audio_path_state, 
-            case_summary, 
-            hidden_story_state, 
-            chatbot
+            case_image,        # Inject Image
+            case_audio,        # Inject Audio
+            audio_path_state,  # Save State
+            case_summary,      # Update Text
+            hidden_story_state,# Save Story
+            chatbot            # Clear Chat
         ]
     )
 
-    audio_btn.click(
-        fn=toggle_audio,
-        inputs=[audio_path_state, case_audio],
-        outputs=[case_audio, audio_btn]
-    )
-
-    submit_btn.click(
-        fn=process_question,
-        inputs=[msg_input, chatbot, hidden_story_state],
-        outputs=[msg_input, chatbot],
-        js=js_scroll_chat
-    )
-    
-    msg_input.submit(
-        fn=process_question,
-        inputs=[msg_input, chatbot, hidden_story_state],
-        outputs=[msg_input, chatbot],
-        js=js_scroll_chat
-    )
+    audio_btn.click(toggle_audio, [audio_path_state, case_audio], [case_audio, audio_btn])
+    submit_btn.click(process_question, [msg_input, chatbot, hidden_story_state], [msg_input, chatbot], js=js_scroll_chat)
+    msg_input.submit(process_question, [msg_input, chatbot, hidden_story_state], [msg_input, chatbot], js=js_scroll_chat)
 
 if __name__ == "__main__":
-    demo.launch(
-        theme=gr.themes.Monochrome(), 
-        allowed_paths=[os.getcwd()]
-    )
+    output_dir = os.path.join(os.getcwd(), "outputs")
+    demo.launch(theme=gr.themes.Monochrome(), allowed_paths=[os.getcwd(), output_dir])

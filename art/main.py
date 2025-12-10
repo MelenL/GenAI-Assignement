@@ -28,9 +28,20 @@ def generate_story_assets(theme: str, story_summary: str, story_full: str):
         return None, None, f" Error during concept generation: {str(e)}"
 
     # Define output paths
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    OUTPUT_DIR = os.path.join(PROJECT_ROOT, "outputs")
+    IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
+    AUDIO_DIR = os.path.join(OUTPUT_DIR, "audio")
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    image_path = f"output_card_{timestamp}.png"
-    audio_path = f"output_audio_{timestamp}.wav"
+    image_fname = f"card_{timestamp}.png"
+    audio_fname = f"audio_{timestamp}.wav"
+
+    image_path = os.path.join(IMAGES_DIR, image_fname)
+    audio_path = os.path.join(AUDIO_DIR, audio_fname)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
     
     status_log = ["Concepts Generated successfully."]
 
@@ -38,7 +49,7 @@ def generate_story_assets(theme: str, story_summary: str, story_full: str):
     print("\n[2/3] Generating Image...")
     image_success = False
     try:
-        image_success = generate_image_gemini(concepts["image_prompt"], "gemini_dark_story.png")
+        image_success = generate_image_gemini(concepts["image_prompt"], image_path)
         if image_success:
             status_log.append(" Image generated.")
         else:
@@ -71,9 +82,13 @@ def generate_story_assets(theme: str, story_summary: str, story_full: str):
         status_log.append(f" Music generation crashed: {str(e)}")
         audio_path = None
 
-    # 5. Return results
+    # 5. Return results    
+    rel_image = os.path.relpath(image_path, PROJECT_ROOT) if image_path else None
+    rel_audio = os.path.relpath(audio_path, PROJECT_ROOT) if audio_path else None
+
     final_status = "\n".join(status_log)
-    return image_path, audio_path, final_status
+    
+    return rel_image, rel_audio, final_status
 
 # --- Test Block (Simulates how Gradio will call it) ---
 if __name__ == "__main__":
