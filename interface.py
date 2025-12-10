@@ -7,7 +7,10 @@ import traceback
 
 # Try to import your actual backend
 try:
-    from art.main import generate_story_assets
+    # to run without generation, change the actual import path to something invalid like:
+    from RANDOM import generate_story_assets
+    # Uncomment the line below to use the real generator
+    #from art.main import generate_story_assets
 except ImportError:
     print("WARNING: 'art.main' not found. Using mock generator.")
     def generate_story_assets(topic, summary, hidden_story):
