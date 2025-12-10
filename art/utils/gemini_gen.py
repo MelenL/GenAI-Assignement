@@ -1,30 +1,42 @@
 import os
 import time
 import json
-import base64
-import io
-import requests
-from PIL import Image
+import traceback
 from dotenv import load_dotenv
-import google.generativeai as genai
+from PIL import Image
+from io import BytesIO
+
+# --- NEW SDK IMPORTS ---
+from google import genai
+from google.genai import types
 
 # --- CONFIGURATION ---
 load_dotenv()
 API_KEY = os.environ.get("GOOGLE_API_KEY")
 
+# Initialize Client globally to reuse across functions
+client = None
+
 def setup_gemini():
+    """Initializes the new GenAI client."""
+    global client
     if not API_KEY:
         print(" Error: GOOGLE_API_KEY not found in .env file.")
         return False
-    genai.configure(api_key=API_KEY)
-    return True
+    
+    try:
+        client = genai.Client(api_key=API_KEY)
+        return True
+    except Exception as e:
+        print(f" Error initializing GenAI client: {e}")
+        return False
 
 def generate_multimedia_concepts(theme, story_summary, story_full):
     """
-    Generates prompts. 
-    FIX: Aggressively banning text and diagrammatic elements in the positive prompt instructions.
+    Generates prompts using the new SDK's text generation.
     """
-    
+    if not client: return None
+
     prompt_text = f"""
     You are the Creative Director for a minimalist "Dark Stories" mystery game.
     
@@ -59,52 +71,38 @@ def generate_multimedia_concepts(theme, story_summary, story_full):
     }}
     """
     
-    # Efficient models first
-    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+    # Try the latest Flash model
+    model_name = 'gemini-2.0-flash' 
     
-    response_text = None
-    
-    for model_name in models_to_try:
-        try:
-            model = genai.GenerativeModel(model_name)
-            # Request JSON response type if supported
-            generation_config = {"response_mime_type": "application/json"}
-            response = model.generate_content(prompt_text, generation_config=generation_config)
-            response_text = response.text.strip()
-            break 
-        except Exception as e:
-            # Fallback to standard text generation if JSON mode isn't supported or model fails
-            if "404" in str(e) or "MIME" in str(e):
-                try:
-                    response = model.generate_content(prompt_text)
-                    response_text = response.text.strip()
-                    break
-                except:
-                    continue
-            print(f"    (Skipping {model_name}: {e})")
-
-    if not response_text:
-        print(" Failed to get concepts from Gemini.")
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt_text,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
+        )
+        response_text = response.text.strip()
+        
+    except Exception as e:
+        print(f" Error generating concepts: {e}")
         return None
 
     # Parse JSON
     try:
+        # Clean up any markdown wrapping just in case
         clean_json = response_text.replace("```json", "").replace("```", "").strip()
         data = json.loads(clean_json)
         
-        # FIX: Handle if Gemini wraps the dict in a list [ { ... } ]
+        # Handle list wrapping [ { ... } ]
         if isinstance(data, list):
-            if len(data) > 0:
-                data = data[0]
-            else:
-                print("Error: Gemini returned an empty list.")
-                return None
-        
-        # Post-process to ensure safety/style compliance
-        if "white background" not in data["image_prompt"].lower():
+            data = data[0] if len(data) > 0 else {}
+
+        # Post-Process: Strengthen Prompt Constraints
+        if "white background" not in data.get("image_prompt", "").lower():
             data["image_prompt"] += ", solid white background"
         
-        # FIX: Significantly strengthen the appended negative constraints
+        # Aggressive negative constraints appended to positive prompt
         data["image_prompt"] += ", strictly pictorial, absolutely no text, no letters, no numbers, no code, no XML, no labels, no dimensions, no diagrams, pure illustration only"
             
         print(f"  > Image Concept: {data['image_prompt'][:50]}...")
@@ -115,70 +113,46 @@ def generate_multimedia_concepts(theme, story_summary, story_full):
     except json.JSONDecodeError:
         print(f" Failed to parse JSON response: {response_text}")
         return None
-    except Exception as e:
-        print(f" Unexpected error parsing data: {e}")
-        return None
-
-def generate_image_rest_fallback(prompt, output_file):
-    """Fallback if Python SDK is outdated."""
-    print("  > SDK helper missing. Switching to REST API Fallback...")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key={API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    
-    # FIX: Removed negativePrompt
-    payload = {
-        "instances": [{"prompt": prompt}],
-        "parameters": {
-            "sampleCount": 1, 
-            "aspectRatio": "1:1", 
-            "personGeneration": "dont_allow"
-        }
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        if response.status_code != 200:
-            print(f" REST API Error: {response.text}")
-            return False
-            
-        result = response.json()
-        if "predictions" in result:
-            b64_data = result["predictions"][0]["bytesBase64Encoded"]
-            image = Image.open(io.BytesIO(base64.b64decode(b64_data)))
-            image.save(output_file)
-            return True
-    except Exception as e:
-        print(f" REST Fallback failed: {e}")
-    return False
 
 def generate_image_gemini(prompt, output_file="gemini_card.png"):
-    """Generates the image using Imagen."""
-    
-    if not hasattr(genai, "ImageGenerationModel"):
-        return generate_image_rest_fallback(prompt, output_file)
+    """
+    Generates image using the NEW SDK (Imagen 3).
+    """
+    if not client: return False
+
+    print("  > Sending request to Imagen...")
+
+    # We try Imagen 3.0 first as it is widely available. 
+    # If you have access to 4.0, change this string to 'imagen-4.0-generate-001'
+    model_name = 'imagen-4.0-generate-001'
 
     try:
-        # Try Imagen 3 first (Standard)
-        imagen_model = genai.ImageGenerationModel("imagen-3.0-generate-001") 
-        
-        images = imagen_model.generate_images(
+        response = client.models.generate_images(
+            model=model_name,
             prompt=prompt,
-            number_of_images=1,
-            aspect_ratio="1:1",
-            safety_filter_level="block_only_high", 
-            person_generation="dont_allow"
-            # FIX: Removed negative_prompt
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="1:1",
+                # The new SDK handles constraints differently, usually baked into the prompt 
+                # or strictly safety settings. We rely on the prompt engineering here.
+            )
         )
-        if images and images[0]:
-            images[0].save(location=output_file)
+        
+        # The new SDK returns a list of GeneratedImage objects
+        if response.generated_images:
+            generated_image = response.generated_images[0]
+            
+            # generated_image.image is ALREADY a PIL Image object!
+            # We can save it directly.
+            generated_image.image.save(output_file)
             print(f"  > Success! Saved to {output_file}")
             return True
-    except AttributeError:
-        return generate_image_rest_fallback(prompt, output_file)
+            
     except Exception as e:
-        print(f" Error generating image (SDK): {e}")
-        # Try fallback if SDK fails
-        return generate_image_rest_fallback(prompt, output_file)
+        print(f" Error generating image with new SDK: {e}")
+        # If 3.0 fails, you might try a fallback, but usually this error is definitive (quota/safety)
+    
+    return False
 
 # --- GLUE FUNCTION FOR GRADIO ---
 def generate_story_assets(topic, summary, hidden_story):
@@ -189,7 +163,7 @@ def generate_story_assets(topic, summary, hidden_story):
     logs = []
     
     if not setup_gemini():
-        return None, None, "Error: Google API Key missing."
+        return None, None, "Error: Google API Key missing or Client failed."
 
     # 1. Generate Prompts
     concepts = generate_multimedia_concepts(topic, summary, hidden_story)
@@ -200,7 +174,6 @@ def generate_story_assets(topic, summary, hidden_story):
     logs.append(f"Music Prompt: {concepts['music_prompt']}")
 
     # 2. Setup Output Paths
-    # Ensure outputs directory exists
     base_dir = os.getcwd()
     img_dir = os.path.join(base_dir, "outputs", "images")
     audio_dir = os.path.join(base_dir, "outputs", "audio")
@@ -210,7 +183,7 @@ def generate_story_assets(topic, summary, hidden_story):
     
     timestamp = int(time.time())
     img_filename = f"card_{timestamp}.png"
-    audio_filename = f"audio_{timestamp}.wav" # Placeholder name
+    audio_filename = f"audio_{timestamp}.wav"
     
     img_full_path = os.path.join(img_dir, img_filename)
     audio_full_path = os.path.join(audio_dir, audio_filename)
@@ -218,7 +191,7 @@ def generate_story_assets(topic, summary, hidden_story):
     # 3. Generate Image
     img_success = generate_image_gemini(concepts['image_prompt'], img_full_path)
     
-    # 4. Generate Audio (Placeholder / TODO)
+    # 4. Generate Audio (Placeholder)
     audio_success = False 
     
     return (
@@ -232,5 +205,6 @@ if __name__ == "__main__":
     print("Testing Generation...")
     summary = "The King's favorite jester was found dead in the moat, still wearing his bells. The water is shallow."
     hidden_story = "The King pushed him. The Jester was secretly having an affair with the Queen, and the King found a love letter in his cap."
+    
     i, a, l = generate_story_assets("Medieval", summary, hidden_story)
     print(f"Image: {i}\nLog: {l}")
