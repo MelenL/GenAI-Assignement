@@ -5,12 +5,14 @@ import os
 import logging
 import traceback
 
+from css.custom_css import custom_css, js_scroll_chat
+
 # Try to import your actual backend
 try:
     # to run without generation, change the actual import path to something invalid like:
-    from RANDOM import generate_story_assets
+    # from RANDOM import generate_story_assets
     # Uncomment the line below to use the real generator
-    #from art.main import generate_story_assets
+    from AWD import generate_story_assets
 except ImportError:
     print("WARNING: 'art.main' not found. Using mock generator.")
     def generate_story_assets(topic, summary, hidden_story):
@@ -149,28 +151,6 @@ def toggle_audio(current_path_state, audio_component_value):
     else:
         return current_path_state, "🔊 Audio On (Click to Mute)"
 
-# ==========================================
-# 3. CSS & LAYOUT
-# ==========================================
-js_scroll_chat = """
-(args) => { 
-    setTimeout(() => { 
-        const c = document.getElementById('chatbot').querySelector('.scroll-hide'); 
-        if(c) c.scrollTop = c.scrollHeight; 
-    }, 100); 
-    return args; 
-}
-"""
-
-custom_css = """
-<style>
-#right_col { display: flex !important; flex-direction: column !important; }
-#chatbot { flex-grow: 1 !important; min-height: 500px !important; }
-#chatbot *::-webkit-scrollbar { display: none; }
-#chatbot * { -ms-overflow-style: none; scrollbar-width: none; }
-#invisible_audio { height: 0px !important; width: 0px !important; opacity: 0; overflow: hidden; position: absolute; z-index: -1; }
-</style>
-"""
 
 with gr.Blocks(title="Dark Stories AI") as demo:
     gr.HTML(custom_css)
