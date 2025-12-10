@@ -22,6 +22,7 @@ def setup_gemini():
 def generate_multimedia_concepts(theme, story_summary, story_full):
     """
     Generates prompts. 
+    FIX: Aggressively banning text and diagrammatic elements in the positive prompt instructions.
     """
     
     prompt_text = f"""
@@ -39,9 +40,9 @@ def generate_multimedia_concepts(theme, story_summary, story_full):
     TASK:
     Generate two distinct prompts in JSON format:
     1. "image_prompt": For a vector icon generator (Imagen).
-       - Style: Flat vector art, minimalist, crisp lines, digital illustration.
-       - IMPORTANT: The image must be a PICTURE, not code. 
-       - INSTRUCTION: Do NOT include text, letters, or code snippets in the image.
+       - Style: Minimalist flat vector illustration, clean lines.
+       - CRITICAL INSTRUCTION: The output must be a pure artistic illustration. Do NOT generate a technical diagram, blueprint, schematic, or infographic.
+       - ABSOLUTELY NO TEXT: The image must contain NO letters, numbers, code, XML, labels, dimensions, arrows, or UI elements.
        - Colors: Strictly Black, Red, and White. White background.
        - Content: ONE central symbolic object. 
        
@@ -53,22 +54,26 @@ def generate_multimedia_concepts(theme, story_summary, story_full):
     
     OUTPUT JSON FORMAT:
     {{
-      "image_prompt": "Flat vector icon of [Object], black and red, white background, no text...",
+      "image_prompt": "A minimalist flat vector illustration of [Object], black and red colors, isolated on a solid white background. Pure pictorial art, contains absolutely no text or labels.",
       "music_prompt": "Dark ambient background music..."
     }}
     """
     
+    # Efficient models first
     models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+    
     response_text = None
     
     for model_name in models_to_try:
         try:
             model = genai.GenerativeModel(model_name)
+            # Request JSON response type if supported
             generation_config = {"response_mime_type": "application/json"}
             response = model.generate_content(prompt_text, generation_config=generation_config)
             response_text = response.text.strip()
             break 
         except Exception as e:
+            # Fallback to standard text generation if JSON mode isn't supported or model fails
             if "404" in str(e) or "MIME" in str(e):
                 try:
                     response = model.generate_content(prompt_text)
@@ -97,9 +102,10 @@ def generate_multimedia_concepts(theme, story_summary, story_full):
         
         # Post-process to ensure safety/style compliance
         if "white background" not in data["image_prompt"].lower():
-            data["image_prompt"] += ", white background"
+            data["image_prompt"] += ", solid white background"
         
-        data["image_prompt"] += ", object only, no text, no code, no letters"
+        # FIX: Significantly strengthen the appended negative constraints
+        data["image_prompt"] += ", strictly pictorial, absolutely no text, no letters, no numbers, no code, no XML, no labels, no dimensions, no diagrams, pure illustration only"
             
         print(f"  > Image Concept: {data['image_prompt'][:50]}...")
         print(f"  > Music Concept: {data['music_prompt'][:50]}...")
