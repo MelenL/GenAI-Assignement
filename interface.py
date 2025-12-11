@@ -5,19 +5,29 @@ import os
 import logging
 import traceback
 
+# Import CSS
 from css.custom_css import custom_css, js_scroll_chat
 
-# Try to import your actual backend
+# Try to import the art module
 try:
     # to run without generation, change the actual import path to something invalid like:
     # from RANDOM import generate_story_assets
     # Uncomment the line below to use the real generator
-    from AWD import generate_story_assets
+    from art.main import generate_story_assets
 except ImportError:
     print("WARNING: 'art.main' not found. Using mock generator.")
-    def generate_story_assets(topic, summary, hidden_story):
+    def generate_story_assets(topic, summary, hidden_story, generate_game_music=True):
         time.sleep(2) 
-        return "C:\\Eu\\Facultate\\EIT\\1_1\\GenAI\\GenAI-Assignement\\outputs\\images\\card_20251210_154532.png", "C:\\Eu\\Facultate\\EIT\\1_1\\GenAI\\GenAI-Assignement\\outputs\\audio\\audio_20251210_154532.wav", "Mock generation complete."
+        return "outputs\\images\\card_20251211_115546.png", "outputs\\audio\\gemini_story_theme.wav", "Mock generation complete."
+    
+
+# Import the QA Engine (The Detective Logic)
+try:
+    from story.qa_engine import analyze_question_with_llm, generate_hint_with_llm
+except ImportError:
+    print("WARNING: could not import story.qa_engine — using mock logic.")
+    def analyze_question_with_llm(q, truth, summary): return "Mock Answer: Yes"
+    def generate_hint_with_llm(hist, truth, summary): return "Mock Hint: Check the ceiling."
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,18 +65,6 @@ class MockStoryEngine:
         else:
             return "No story found for this topic.", "N/A"
 
-    def analyze_question(self, question, full_story):
-        q_lower = question.lower()
-        story_lower = full_story.lower()
-        if "murder" in q_lower:
-            return "No" if "murder" not in story_lower and "killed" not in story_lower else "Yes"
-        elif "suicide" in q_lower:
-            return "No"
-        elif "accident" in q_lower:
-            return "Yes"
-        else:
-            return random.choice(["Yes", "No", "That is irrelevant.", "I cannot answer that.", "Focus on the evidence."])
-
 story_engine = MockStoryEngine()
 
 # ==========================================
@@ -74,36 +72,28 @@ story_engine = MockStoryEngine()
 # ==========================================
 
 def init_game_ui():
-    """
-    STEP 1: Pure Layout Switch.
-    This runs instantly to force the browser to render the empty Image/Audio components.
-    """
+    """Step 1: Layout Switch"""
     return (
         gr.update(visible=False), # Hide Setup
         gr.update(visible=True),  # Show Game
-        gr.update(value=None),    # Clear Image (Placeholder)
-        gr.update(value=None),    # Clear Audio (Placeholder)
+        gr.update(value=None),    # Clear Image
+        gr.update(value=None),    # Clear Audio
         "Loading case files..."   # Temporary text
     )
 
 def generate_case_data(topic, difficulty, progress=gr.Progress()):
-    """
-    STEP 2: Heavy Lifting & Data Injection.
-    This runs AFTER the UI is visible.
-    """
+    """Step 2: Generate Data"""
     print(f"\n--- Loading Case: {topic} ---")
     progress(0.1, desc="Consulting Archive...")
     time.sleep(0.5) 
     
-    # A. Get Story
     summary, hidden_story = story_engine.get_story(topic)
     
-    # B. Generate Assets
     progress(0.3, desc="Generating Visuals & Audio...")
     img_path, audio_path, logs = None, None, ""
 
     try:
-        img_path, audio_path, logs = generate_story_assets(topic, summary, hidden_story)
+        img_path, audio_path, logs = generate_story_assets(topic, summary, hidden_story, generate_game_music=False)
     except Exception as e:
         tb = traceback.format_exc()
         print("ERROR IN GENERATION:", tb)
@@ -111,11 +101,10 @@ def generate_case_data(topic, difficulty, progress=gr.Progress()):
 
     progress(0.8, desc="Verifying Evidence...")
     
-    # Absolute Path Enforcement
+    # Check paths
     final_img = os.path.abspath(img_path) if img_path and os.path.exists(img_path) else None
     final_audio = os.path.abspath(audio_path) if audio_path and os.path.exists(audio_path) else None
 
-    # C. Prepare Text
     case_display_text = f"""
     # 🕵️‍♂️ Case File: {topic}
     ### **Difficulty:** {difficulty}
@@ -128,18 +117,54 @@ def generate_case_data(topic, difficulty, progress=gr.Progress()):
     progress(1.0, desc="Investigation Ready")
     
     return (
-        gr.update(value=final_img),                    # Update Image
-        gr.update(value=final_audio, autoplay=True),   # Update Audio
-        final_audio,                                   # Save Audio State
-        case_display_text,                             # Update Text
-        hidden_story,                                  # Save Story State
-        []                                             # Reset Chat
+        gr.update(value=final_img),                    # Image
+        gr.update(value=final_audio, autoplay=True),   # Audio
+        final_audio,                                   # Audio State
+        case_display_text,                             # Text
+        hidden_story,                                  # Story State
+        []                                             # Chat Reset
     )
 
-def process_question(user_input, history, hidden_story):
+def process_question(user_input, history, hidden_story, current_summary_text):
+    """
+    Step 3: The Interactive QA Loop
+    """
+    if not user_input: 
+        return "", history
+    
+    # Extract just the summary text if it has markdown formatting
+    clean_summary = current_summary_text.replace(">", "").strip()
+    
+    ai_answer = analyze_question_with_llm(user_input, hidden_story, clean_summary)
+    
+    history = history or []
+    history.append({"role": "user", "content": user_input})
+    history.append({"role": "assistant", "content": ai_answer})
+    return "", history
+
+def process_hint(history, hidden_story, current_summary_text):
+    """
+    Calls the LLM to get a hint based on history.
+    """
+    # Clean summary text (remove markdown blockquotes if present)
+    clean_summary = current_summary_text.replace(">", "").strip() if current_summary_text else ""
+    
+    # Get Hint
+    hint_text = generate_hint_with_llm(history, hidden_story, clean_summary)
+    
+    # Append to chat
+    history = history or []
+    # We add it as an 'assistant' message so it appears on the left
+    history.append({"role": "assistant", "content": hint_text})
+    
+    return history
+
+def process_question(user_input, history, hidden_story, current_summary_text):
     if not user_input: return "", history
-    ai_answer = story_engine.analyze_question(user_input, hidden_story)
-    time.sleep(0.3) 
+    
+    clean_summary = current_summary_text.replace(">", "").strip()
+    ai_answer = analyze_question_with_llm(user_input, hidden_story, clean_summary)
+    
     history = history or []
     history.append({"role": "user", "content": user_input})
     history.append({"role": "assistant", "content": ai_answer})
@@ -155,9 +180,9 @@ def toggle_audio(current_path_state, audio_component_value):
 with gr.Blocks(title="Dark Stories AI") as demo:
     gr.HTML(custom_css)
     
-    # State Variables
     hidden_story_state = gr.State()
     audio_path_state = gr.State()
+    current_summary_state = gr.State()
 
     # --- SETUP SCREEN ---
     with gr.Column(visible=True) as setup_group:
@@ -170,6 +195,7 @@ with gr.Blocks(title="Dark Stories AI") as demo:
 
     # --- GAME SCREEN ---
     with gr.Row(visible=False, equal_height=True) as game_group:
+        # Left Column
         with gr.Column(scale=1):
             case_summary = gr.Markdown("Waiting for case file...")
             with gr.Row():
@@ -179,45 +205,58 @@ with gr.Blocks(title="Dark Stories AI") as demo:
 
         with gr.Column(scale=1, elem_id="right_col"):
             gr.Markdown("### 🗣️ Interrogation Log")
+            
+            # FIX: Removed 'type="messages"' (Gradio infers it automatically now)
             chatbot = gr.Chatbot(label="Detective's Notes", elem_id="chatbot")
+            
             with gr.Row():
-                msg_input = gr.Textbox(show_label=False, placeholder="Type your question here...", scale=9, container=False)
+                msg_input = gr.Textbox(show_label=False, placeholder="Ask a Yes/No question...", scale=7, container=False)
+                # FIX: Removed 'tooltip="Get a Hint"' (Deprecated)
+                hint_btn = gr.Button("💡", variant="secondary", scale=1, min_width=0)
                 submit_btn = gr.Button("➤", variant="primary", scale=1, min_width=0)
 
-    # --- CRITICAL EVENT CHAINING ---
+    # --- EVENT LISTENERS ---
     
-    # 1. First Click: Switch Views ONLY (Fast)
-    # This forces the browser to paint the 'game_group' and the image/audio containers.
+    # 1. Start Game
     start_btn.click(
         fn=init_game_ui,
         inputs=None,
-        outputs=[
-            setup_group,  # Hide Setup
-            game_group,   # Show Game
-            case_image,   # Reset Image
-            case_audio,   # Reset Audio
-            case_summary  # Reset Text
-        ],
-        queue=False       # Run immediately
+        outputs=[setup_group, game_group, case_image, case_audio, case_summary],
+        queue=False 
     ).then(
-        # 2. Then: Generate Data (Slow)
-        # Now that the components are visible on screen, we push the data into them.
         fn=generate_case_data,
         inputs=[topic_input, diff_input],
-        outputs=[
-            case_image,        # Inject Image
-            case_audio,        # Inject Audio
-            audio_path_state,  # Save State
-            case_summary,      # Update Text
-            hidden_story_state,# Save Story
-            chatbot            # Clear Chat
-        ]
+        outputs=[case_image, case_audio, audio_path_state, case_summary, hidden_story_state, chatbot]
     )
 
+    # 2. Audio Toggle
     audio_btn.click(toggle_audio, [audio_path_state, case_audio], [case_audio, audio_btn])
-    submit_btn.click(process_question, [msg_input, chatbot, hidden_story_state], [msg_input, chatbot], js=js_scroll_chat)
-    msg_input.submit(process_question, [msg_input, chatbot, hidden_story_state], [msg_input, chatbot], js=js_scroll_chat)
+
+    # 3. Chat Logic    
+    submit_event = submit_btn.click(
+        fn=process_question, 
+        inputs=[msg_input, chatbot, hidden_story_state, case_summary],
+        outputs=[msg_input, chatbot]
+    ).then(
+        fn=None, js=js_scroll_chat
+    )
+    
+    msg_input.submit(
+        fn=process_question, 
+        inputs=[msg_input, chatbot, hidden_story_state, case_summary],
+        outputs=[msg_input, chatbot]
+    ).then(
+        fn=None, js=js_scroll_chat
+    )
+
+    # Hint Logic
+    hint_btn.click(
+        fn=process_hint,
+        inputs=[chatbot, hidden_story_state, case_summary],
+        outputs=[chatbot]
+    ).then(fn=None, js=js_scroll_chat)
 
 if __name__ == "__main__":
     output_dir = os.path.join(os.getcwd(), "outputs")
+    os.makedirs(output_dir, exist_ok=True) # Ensure output dir exists to prevent path errors
     demo.launch(theme=gr.themes.Monochrome(), allowed_paths=[os.getcwd(), output_dir])
