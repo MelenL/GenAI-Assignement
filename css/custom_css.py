@@ -30,15 +30,15 @@ custom_css = """
     height: 100% !important; 
 }
 
-/* Chatbot should grow to fill available space and have a fixed min-height */
+/* Chatbot Area */
 #chatbot { 
     flex-grow: 1 !important; 
-    min-height: 500px !important; 
-    height: 500px !important; /* Important for overflow to work */
+    min-height: 650px !important;    
+    height: 650px !important;        
     overflow-y: auto !important; 
 }
 
-/* Hide Scrollbar (Optional - remove if you want to see it) */
+/* Hide Scrollbar */
 #chatbot *::-webkit-scrollbar { display: none; }
 #chatbot * { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -50,6 +50,13 @@ custom_css = """
     overflow: hidden; 
     position: absolute; 
     z-index: -1; 
+}
+
+#chatbot button {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0px !important;
+    height: 0px !important;
 }
 </style>
 """

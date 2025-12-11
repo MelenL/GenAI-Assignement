@@ -10,9 +10,6 @@ from css.custom_css import custom_css, js_scroll_chat
 
 # Try to import the art module
 try:
-    # to run without generation, change the actual import path to something invalid like:
-    # from RANDOM import generate_story_assets
-    # Uncomment the line below to use the real generator
     from art.main import generate_story_assets
 except ImportError:
     print("WARNING: 'art.main' not found. Using mock generator.")
@@ -20,7 +17,6 @@ except ImportError:
         time.sleep(2) 
         return "outputs\\images\\card_20251211_115546.png", "outputs\\audio\\gemini_story_theme.wav", "Mock generation complete."
     
-
 # Import the QA Engine (The Detective Logic)
 try:
     from story.qa_engine import analyze_question_with_llm, generate_hint_with_llm
@@ -78,7 +74,8 @@ def init_game_ui():
         gr.update(visible=True),  # Show Game
         gr.update(value=None),    # Clear Image
         gr.update(value=None),    # Clear Audio
-        "Loading case files..."   # Temporary text
+        "Loading case files...",  # Temporary text
+        gr.update(visible=False, value="") # Hide Answer Box on new game
     )
 
 def generate_case_data(topic, difficulty, progress=gr.Progress()):
@@ -129,37 +126,6 @@ def process_question(user_input, history, hidden_story, current_summary_text):
     """
     Step 3: The Interactive QA Loop
     """
-    if not user_input: 
-        return "", history
-    
-    # Extract just the summary text if it has markdown formatting
-    clean_summary = current_summary_text.replace(">", "").strip()
-    
-    ai_answer = analyze_question_with_llm(user_input, hidden_story, clean_summary)
-    
-    history = history or []
-    history.append({"role": "user", "content": user_input})
-    history.append({"role": "assistant", "content": ai_answer})
-    return "", history
-
-def process_hint(history, hidden_story, current_summary_text):
-    """
-    Calls the LLM to get a hint based on history.
-    """
-    # Clean summary text (remove markdown blockquotes if present)
-    clean_summary = current_summary_text.replace(">", "").strip() if current_summary_text else ""
-    
-    # Get Hint
-    hint_text = generate_hint_with_llm(history, hidden_story, clean_summary)
-    
-    # Append to chat
-    history = history or []
-    # We add it as an 'assistant' message so it appears on the left
-    history.append({"role": "assistant", "content": hint_text})
-    
-    return history
-
-def process_question(user_input, history, hidden_story, current_summary_text):
     if not user_input: return "", history
     
     clean_summary = current_summary_text.replace(">", "").strip()
@@ -169,6 +135,19 @@ def process_question(user_input, history, hidden_story, current_summary_text):
     history.append({"role": "user", "content": user_input})
     history.append({"role": "assistant", "content": ai_answer})
     return "", history
+
+def process_hint(history, hidden_story, current_summary_text):
+    """Calls the LLM to get a hint based on history."""
+    clean_summary = current_summary_text.replace(">", "").strip() if current_summary_text else ""
+    hint_text = generate_hint_with_llm(history, hidden_story, clean_summary)
+    
+    history = history or []
+    history.append({"role": "assistant", "content": hint_text})
+    return history
+
+def reveal_answer(hidden_story):
+    """Reveal the hidden story text."""
+    return gr.update(value=f"### 🕵️‍♂️ THE TRUTH:\n{hidden_story}", visible=True)
 
 def toggle_audio(current_path_state, audio_component_value):
     if audio_component_value is not None:
@@ -198,20 +177,32 @@ with gr.Blocks(title="Dark Stories AI") as demo:
         # Left Column
         with gr.Column(scale=1):
             case_summary = gr.Markdown("Waiting for case file...")
+            
+            with gr.Row():
+                reveal_btn = gr.Button("👁️ Reveal Answer", size="sm", variant="secondary")
+            
+            answer_box = gr.Markdown(visible=False)
+
             with gr.Row():
                 audio_btn = gr.Button("🔊 Audio On (Click to Mute)", size="sm", variant="secondary")
                 case_audio = gr.Audio(visible=True, interactive=False, autoplay=True, type="filepath", elem_id="invisible_audio")
-            case_image = gr.Image(label="Visual Evidence", interactive=False, type="filepath", height=500)
+            
+            # Matched height to chatbot so columns align better
+            case_image = gr.Image(label="Visual Evidence", interactive=False, type="filepath", height=450)
 
+        # Right Column
         with gr.Column(scale=1, elem_id="right_col"):
             gr.Markdown("### 🗣️ Interrogation Log")
             
-            # FIX: Removed 'type="messages"' (Gradio infers it automatically now)
             chatbot = gr.Chatbot(label="Detective's Notes", elem_id="chatbot")
             
             with gr.Row():
-                msg_input = gr.Textbox(show_label=False, placeholder="Ask a Yes/No question...", scale=7, container=False)
-                # FIX: Removed 'tooltip="Get a Hint"' (Deprecated)
+                msg_input = gr.Textbox(
+                    show_label=False, 
+                    placeholder="Ask a Yes/No question...", 
+                    scale=7, 
+                    container=False
+                )
                 hint_btn = gr.Button("💡", variant="secondary", scale=1, min_width=0)
                 submit_btn = gr.Button("➤", variant="primary", scale=1, min_width=0)
 
@@ -221,7 +212,7 @@ with gr.Blocks(title="Dark Stories AI") as demo:
     start_btn.click(
         fn=init_game_ui,
         inputs=None,
-        outputs=[setup_group, game_group, case_image, case_audio, case_summary],
+        outputs=[setup_group, game_group, case_image, case_audio, case_summary, answer_box], # Added answer_box to reset it
         queue=False 
     ).then(
         fn=generate_case_data,
@@ -233,7 +224,7 @@ with gr.Blocks(title="Dark Stories AI") as demo:
     audio_btn.click(toggle_audio, [audio_path_state, case_audio], [case_audio, audio_btn])
 
     # 3. Chat Logic    
-    submit_event = submit_btn.click(
+    submit_btn.click(
         fn=process_question, 
         inputs=[msg_input, chatbot, hidden_story_state, case_summary],
         outputs=[msg_input, chatbot]
@@ -249,14 +240,21 @@ with gr.Blocks(title="Dark Stories AI") as demo:
         fn=None, js=js_scroll_chat
     )
 
-    # Hint Logic
+    # 4. Hint Logic
     hint_btn.click(
         fn=process_hint,
         inputs=[chatbot, hidden_story_state, case_summary],
         outputs=[chatbot]
     ).then(fn=None, js=js_scroll_chat)
 
+    # 5. NEW: Reveal Logic
+    reveal_btn.click(
+        fn=reveal_answer,
+        inputs=[hidden_story_state],
+        outputs=[answer_box]
+    )
+
 if __name__ == "__main__":
     output_dir = os.path.join(os.getcwd(), "outputs")
-    os.makedirs(output_dir, exist_ok=True) # Ensure output dir exists to prevent path errors
+    os.makedirs(output_dir, exist_ok=True) 
     demo.launch(theme=gr.themes.Monochrome(), allowed_paths=[os.getcwd(), output_dir])
