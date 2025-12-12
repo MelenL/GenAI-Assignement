@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-from utils.rag import RAG_Engine
+from .utils.rag import RAG_Engine
 
 # Load env variables
 load_dotenv()
@@ -21,7 +21,7 @@ if API_KEY:
 RAG_Engine = RAG_Engine()
 
 # ==========================================
-# FEW-SHOT EXAMPLES FOR BLACK STORIES
+# FEW-SHOT EXAMPLES FOR DARK STORIES
 # ==========================================
 FEW_SHOT_EXAMPLES = """
 Example 1:
@@ -77,7 +77,7 @@ DIFFICULTY_GUIDELINES = {
 # ==========================================
 class StoryEngine:
     """
-    Production story engine that generates black stories using Gemini API.
+    Production story engine that generates dark stories using Gemini API.
     """
 
     def __init__(self, api_client=None):
@@ -99,9 +99,9 @@ class StoryEngine:
         You are an expert creative writer specializing in "Black Stories" - lateral thinking puzzle mysteries.
         
         YOUR TASK:
-        Generate a compelling black story that fits the requested topic and difficulty level.
+        Generate a compelling dark story that fits the requested topic and difficulty level.
         
-        BLACK STORY RULES:
+        DARK STORY RULES:
         1. The short story must be mysterious and intriguing but provide minimal information
         2. The full story must reveal a surprising but logical solution
         3. The solution should involve lateral thinking - not what players expect
@@ -120,16 +120,22 @@ class StoryEngine:
         difficulty_guide = DIFFICULTY_GUIDELINES[difficulty]
 
         user_prompt = f"""
-        Generate a black story with the following parameters:
+        Generate a dark story with the following parameters:
         
         TOPIC: {topic}
         DIFFICULTY: {difficulty}
         DIFFICULTY REQUIREMENTS: {difficulty_guide}
         
-        Here are examples of well-crafted black stories:
-        {FEW_SHOT_EXAMPLES if not use_rag else RAG_Engine.get_examples(topic, difficulty)}
+        Here are examples of well-crafted dark stories:
+        {FEW_SHOT_EXAMPLES if not use_rag else RAG_Engine.get_examples(
+                                                                        target_topic=topic, 
+                                                                        target_difficulty=difficulty, 
+                                                                        client=self.client, 
+                                                                        k=3
+                                                                    )
+        }
         
-        Now create a NEW, ORIGINAL black story for the topic "{topic}" with difficulty level "{difficulty}".
+        Now create a NEW, ORIGINAL dark story for the topic "{topic}" with difficulty level "{difficulty}".
         Make it creative and different from the examples.
         
         Remember to format your response as:
@@ -239,22 +245,22 @@ if __name__ == "__main__":
     topics = ["Cyberpunk", "Medieval", "Modern Crime"]
     difficulties = ["Rookie", "Detective", "Sherlock"]
 
-    for topic in topics[:3]:  # Test with one topic
-        for difficulty in difficulties[:2]:  # Test with one difficulty
-            print(f"\n\n🎲 Generating: {topic} - {difficulty}")
-            print("-" * 60)
+    # for topic in topics[:3]:  # Test with one topic
+    #     for difficulty in difficulties[:2]:  # Test with one difficulty
+    #         print(f"\n\n🎲 Generating: {topic} - {difficulty}")
+    #         print("-" * 60)
 
-            try:
-                short, full = get_story(topic, difficulty)
+    #         try:
+    #             short, full = get_story(topic, difficulty)
 
-                print(f"\n📋 SHORT STORY (What players see):")
-                print(f"   {short}")
+    #             print(f"\n📋 SHORT STORY (What players see):")
+    #             print(f"   {short}")
 
-                print(f"\n🔍 FULL STORY (The solution):")
-                print(f"   {full}")
+    #             print(f"\n🔍 FULL STORY (The solution):")
+    #             print(f"   {full}")
 
-            except Exception as e:
-                print(f"\n❌ Error: {e}")
+    #         except Exception as e:
+    #             print(f"\n❌ Error: {e}")
 
     # Example of using RAG
-    # print(get_story("Cyberpunk", "Detective", use_rag=True))
+    print(get_story("Cyberpunk", "Detective", use_rag=True))

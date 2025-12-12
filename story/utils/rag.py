@@ -26,11 +26,6 @@ if API_KEY:
 # RAG ENGINE
 # ==========================================
 class RAG_Engine:
-    """
-    A retrieval system that uses semantic similarity (embeddings) to find 
-    the best matching examples for a given topic.
-    Persists embeddings to disk to avoid re-generating them on every restart.
-    """
     def __init__(self, data_path=os.path.join(os.path.dirname(__file__), "data\\stories.json"), embeddings_path=os.path.join(os.path.dirname(__file__), "data\\embeddings.json")):
         self.examples = []
         self.embeddings = []  # Cache for example embeddings
@@ -56,7 +51,6 @@ class RAG_Engine:
                 model="text-embedding-004",
                 contents=text
             )
-            # Handle different SDK response structures
             if hasattr(result, 'embeddings'):
                 return result.embeddings[0].values
             return []
@@ -65,25 +59,15 @@ class RAG_Engine:
             return []
 
     def _cosine_similarity(self, vec1, vec2):
-        """Calculates cosine similarity between two vectors."""
-        if not vec1 or not vec2:
-            return 0.0
-        
+        if not vec1 or not vec2: return 0.0
         dot_product = sum(a * b for a, b in zip(vec1, vec2))
         norm_a = math.sqrt(sum(a * a for a in vec1))
         norm_b = math.sqrt(sum(b * b for b in vec2))
-        
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
+        if norm_a == 0 or norm_b == 0: return 0.0
         return dot_product / (norm_a * norm_b)
 
     def _populate_embeddings(self, client):
-        """
-        Lazy loads embeddings. 
-        1. Checks memory. 
-        2. Checks disk (embeddings.json). 
-        3. Generates via API and saves to disk.
-        """
+        """Lazy loads embeddings. Checks disk cache first, then API."""
         if self.embeddings:
             return
 
@@ -92,22 +76,20 @@ class RAG_Engine:
             try:
                 with open(self.embeddings_path, 'r', encoding='utf-8') as f:
                     loaded_embeddings = json.load(f)
-                
-                # Basic validation: If example count matches, assume valid. 
                 if len(loaded_embeddings) == len(self.examples):
                     self.embeddings = loaded_embeddings
                     logging.info(f"Loaded {len(self.embeddings)} embeddings from disk cache.")
                     return
                 else:
-                    logging.warning("Cached embeddings count mismatch (data changed?). Regenerating...")
+                    logging.warning("Cached embeddings count mismatch. Regenerating...")
             except Exception as e:
                 logging.warning(f"Failed to load embeddings from disk: {e}")
 
-        # 2. Generate via API (if disk load failed or mismatch)
-        logging.info("Generating new embeddings via API (one-time setup)...")
+        # 2. Generate via API
+        logging.info("Generating new embeddings via API...")
         generated_embeddings = []
         for ex in self.examples:
-            # Combine topic and short story for a rich semantic representation
+            # We embed Topic + Short Story to capture the "Vibe"
             content = f"{ex.get('topic', '')}: {ex.get('short_story', '')}"
             emb = self._get_embedding(content, client)
             generated_embeddings.append(emb)
@@ -118,64 +100,67 @@ class RAG_Engine:
         try:
             with open(self.embeddings_path, 'w', encoding='utf-8') as f:
                 json.dump(self.embeddings, f)
-            logging.info(f"Saved embeddings cache to {self.embeddings_path}")
         except Exception as e:
             logging.error(f"Failed to save embeddings cache: {e}")
 
-    def get_examples(self, target_topic, client=None, k=3):
+    def get_examples(self, target_topic, target_difficulty, client=None, k=3):
         """
-        Retrieves k examples. 
-        If client is provided, uses Semantic Search (Embeddings).
-        Otherwise, falls back to Keyword Matching.
+        Retrieves k examples using Hybrid Filtering:
+        1. Filter by Difficulty (Metadata)
+        2. Rank by Topic Similarity (Vector)
         """
         if not self.examples:
             return ""
 
-        selected = []
+        # --- STEP 1: METADATA FILTERING ---
+        # Find indices of examples that match the difficulty
+        candidate_indices = [
+            i for i, ex in enumerate(self.examples) 
+            if ex.get('difficulty', '').lower() == target_difficulty.lower()
+        ]
 
-        # --- STRATEGY A: SEMANTIC SEARCH (If Client Available) ---
+        # Fallback: If not enough exact difficulty matches, use ALL examples
+        if len(candidate_indices) < k:
+            logging.info(f"Not enough '{target_difficulty}' examples ({len(candidate_indices)}). Searching full database.")
+            candidate_indices = range(len(self.examples))
+        else:
+            logging.info(f"Filtered down to {len(candidate_indices)} '{target_difficulty}' examples.")
+
+        selected_indices = []
+
+        # --- STEP 2: SEMANTIC SEARCH (Vectors) ---
         if client:
             try:
-                # Ensure cache is ready (from disk or API)
                 self._populate_embeddings(client)
                 
-                if self.embeddings and len(self.embeddings) == len(self.examples):
+                if self.embeddings:
                     # Embed the query
                     query_vec = self._get_embedding(target_topic, client)
                     
                     if query_vec:
-                        # Calculate scores
                         scores = []
-                        for idx, ex_vec in enumerate(self.embeddings):
-                            score = self._cosine_similarity(query_vec, ex_vec)
-                            scores.append((score, self.examples[idx]))
+                        # Only score the filtered candidates
+                        for idx in candidate_indices:
+                            score = self._cosine_similarity(query_vec, self.embeddings[idx])
+                            scores.append((score, idx))
                         
-                        # Sort by similarity desc
+                        # Sort by similarity
                         scores.sort(key=lambda x: x[0], reverse=True)
-                        
-                        # Pick top K
-                        selected = [item[1] for item in scores[:k]]
-                        logging.info(f"RAG: Selected {len(selected)} examples via Semantic Search")
+                        selected_indices = [item[1] for item in scores[:k]]
             
             except Exception as e:
-                logging.warning(f"Semantic search error: {e}. Falling back to keyword match.")
+                logging.warning(f"Semantic search error: {e}")
 
-        # --- STRATEGY B: KEYWORD MATCH (Fallback) ---
-        if not selected:
-            # Filter by exact string match
-            relevant = [ex for ex in self.examples if ex.get('topic', '').lower() == target_topic.lower()]
-            others = [ex for ex in self.examples if ex.get('topic', '').lower() != target_topic.lower()]
-            random.shuffle(others)
-
-            selected = relevant[:k]
-            if len(selected) < k:
-                needed = k - len(selected)
-                selected.extend(others[:needed])
-            logging.info(f"RAG: Selected {len(selected)} examples via Keyword Match")
+        # --- STEP 3: FALLBACK (Keyword/Random) ---
+        if not selected_indices:
+            # If vector search failed, pick random from candidates
+            selected_indices = random.sample(candidate_indices, min(k, len(candidate_indices)))
 
         # Format output
+        selected_examples = [self.examples[i] for i in selected_indices]
+        
         formatted_output = ""
-        for i, ex in enumerate(selected, 1):
+        for i, ex in enumerate(selected_examples, 1):
             formatted_output += f"\nExample {i}:\n"
             formatted_output += f"Topic: {ex.get('topic', 'Unknown')}\n"
             formatted_output += f"Difficulty: {ex.get('difficulty', 'Unknown')}\n"

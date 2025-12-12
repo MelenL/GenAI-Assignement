@@ -59,7 +59,7 @@ def generate_case_data(topic, difficulty, progress=gr.Progress()):
     progress(0.1, desc="Consulting Archive...")
     time.sleep(0.5) 
     
-    summary, hidden_story = get_story(topic, difficulty)
+    summary, hidden_story = get_story(topic, difficulty, use_rag=True)
     
     progress(0.3, desc="Generating Visuals & Audio...")
     img_path, audio_path, logs = None, None, ""
