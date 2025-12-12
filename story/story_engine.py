@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+from utils.rag import RAG_Engine
+
 # Load env variables
 load_dotenv()
 API_KEY = os.environ.get("GOOGLE_API_KEY")
@@ -16,6 +18,7 @@ if API_KEY:
     except Exception as e:
         logging.error(f"Failed to init Gemini Client: {e}")
 
+RAG_Engine = RAG_Engine()
 
 # ==========================================
 # FEW-SHOT EXAMPLES FOR BLACK STORIES
@@ -78,33 +81,11 @@ class StoryEngine:
     """
 
     def __init__(self, api_client=None):
-        """
-        Initialize the story engine.
-
-        Args:
-            api_client: Optional pre-configured Gemini client. If None, uses global client.
-        """
         self.client = api_client or client
         if not self.client:
             logging.warning("StoryEngine initialized without valid API client.")
 
-    def get_story(self, topic, difficulty="Detective", options=None):
-        """
-        Generate a black story based on topic and difficulty.
-
-        Args:
-            topic (str): The theme/setting for the story (e.g., "Cyberpunk", "Medieval", "Modern Crime")
-            difficulty (str): Difficulty level - "Rookie", "Detective", or "Sherlock"
-            options (dict): Optional additional parameters (reserved for future use)
-
-        Returns:
-            tuple: (short_story, full_story)
-                - short_story: The summary that players see initially
-                - full_story: The complete solution that the QA engine uses
-
-        Raises:
-            Exception: If story generation fails
-        """
+    def get_story(self, topic, difficulty="Detective", options=None, use_rag=False):
         if not self.client:
             raise Exception("Story generation unavailable: API client not initialized")
 
@@ -146,7 +127,7 @@ class StoryEngine:
         DIFFICULTY REQUIREMENTS: {difficulty_guide}
         
         Here are examples of well-crafted black stories:
-        {FEW_SHOT_EXAMPLES}
+        {FEW_SHOT_EXAMPLES if not use_rag else RAG_Engine.get_examples(topic, difficulty)}
         
         Now create a NEW, ORIGINAL black story for the topic "{topic}" with difficulty level "{difficulty}".
         Make it creative and different from the examples.
@@ -174,48 +155,28 @@ class StoryEngine:
                 )
             )
 
-            # Parse the response
             response_text = response.text.strip()
-
-            # Extract short story and full story
             short_story, full_story = self._parse_story_response(response_text)
 
             logging.info(f"Story generated successfully")
-            logging.debug(f"Short: {short_story[:50]}...")
-            logging.debug(f"Full: {full_story[:50]}...")
-
             return short_story, full_story
 
         except Exception as e:
             logging.error(f"Story generation failed: {e}")
-            # Fallback to a basic story if generation fails
             return self._get_fallback_story(topic)
 
     def _parse_story_response(self, response_text):
-        """
-        Parse the Gemini response to extract short and full stories.
-
-        Args:
-            response_text (str): Raw response from Gemini
-
-        Returns:
-            tuple: (short_story, full_story)
-        """
         try:
-            # Split by the markers
             parts = response_text.split("FULL STORY:")
-
             if len(parts) != 2:
                 raise ValueError("Response format incorrect")
 
             short_part = parts[0].replace("SHORT STORY:", "").strip()
             full_part = parts[1].strip()
-
             return short_part, full_part
 
         except Exception as e:
             logging.error(f"Failed to parse story response: {e}")
-            # If parsing fails, try to split roughly in half
             mid = len(response_text) // 2
             return response_text[:mid].strip(), response_text[mid:].strip()
 
@@ -257,25 +218,12 @@ class StoryEngine:
                 "Something unexpected happened that led to this outcome. The truth is stranger than it appears."
             )
 
-
 # ==========================================
 # MODULE-LEVEL CONVENIENCE FUNCTION
 # ==========================================
-def get_story(topic, difficulty="Detective", options=None):
-    """
-    Convenience function to generate a story without explicitly creating a StoryEngine instance.
-
-    Args:
-        topic (str): The theme/setting for the story
-        difficulty (str): Difficulty level - "Rookie", "Detective", or "Sherlock"
-        options (dict): Optional additional parameters
-
-    Returns:
-        tuple: (short_story, full_story)
-    """
+def get_story(topic, difficulty="Detective", use_rag=False, options=None):
     engine = StoryEngine()
-    return engine.get_story(topic, difficulty, options)
-
+    return engine.get_story(topic, difficulty, use_rag=use_rag, options=options)
 
 # ==========================================
 # MAIN - FOR TESTING
@@ -307,3 +255,6 @@ if __name__ == "__main__":
 
             except Exception as e:
                 print(f"\n❌ Error: {e}")
+
+    # Example of using RAG
+    # print(get_story("Cyberpunk", "Detective", use_rag=True))

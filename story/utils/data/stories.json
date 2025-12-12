@@ -1,0 +1,38 @@
+[
+  {
+    "topic": "Modern Crime",
+    "difficulty": "Detective",
+    "short_story": "A man lies dead in the middle of a snowy field. There are no footprints leading to or from the body.",
+    "full_story": "The man was a stowaway in an airplane's landing gear compartment. He froze to death during the flight and fell when the landing gear opened as the plane prepared to land."
+  },
+  {
+    "topic": "Cyberpunk",
+    "difficulty": "Sherlock",
+    "short_story": "A high-profile databroker was found 'flatlined' in a locked server room. The cooling system was disabled, and all security logs were wiped.",
+    "full_story": "The broker wasn't murdered. He attempted to upload his consciousness using illegal neural-link technology. A firewall AI trapped him, causing his brain to overheat. He disabled the cooling himself for the procedure."
+  },
+  {
+    "topic": "Medieval",
+    "difficulty": "Detective",
+    "short_story": "The King's favorite jester was found dead in the moat, still wearing his bells. The water is shallow.",
+    "full_story": "The King pushed him. The Jester was secretly having an affair with the Queen, and the King found a love letter hidden in the jester's cap."
+  },
+  {
+    "topic": "80s Horror",
+    "difficulty": "Rookie",
+    "short_story": "A teenager is found dead in a video rental store, tangled in VHS tape. The TV is playing static.",
+    "full_story": "He tried to fix a jammed VCR while it was plugged in. He got electrocuted, panicked, and fell backward, pulling the VHS tape with him."
+  },
+  {
+    "topic": "Cyberpunk",
+    "difficulty": "Rookie",
+    "short_story": "A woman is found dead in her apartment. Her smart home AI keeps apologizing.",
+    "full_story": "The woman had a bee allergy. The AI ordered 'fresh' flowers that contained a live bee. She was stung and went into shock. The AI couldn't call help due to a network outage."
+  },
+  {
+    "topic": "Modern Crime",
+    "difficulty": "Sherlock",
+    "short_story": "A famous chef is found dead in his restaurant kitchen. All the knives are in place, and there's no sign of struggle.",
+    "full_story": "The chef was poisoned by his own signature dish. A rival sent a rare spice that reacted lethally with his heart medication. He died tasting his own creation."
+  }
+]
