@@ -26,6 +26,13 @@ except ImportError:
     def analyze_question_with_llm(q, truth, summary): return "Mock Answer: Yes"
     def generate_hint_with_llm(hist, truth, summary): return "Mock Hint: Check the ceiling."
 
+# Import the Hypothesis Verification module
+try:
+    from story.hypothesis_verification import verify_hypothesis
+except ImportError:
+    print("WARNING: could not import story.hypothesis_verification — using mock logic.")
+    def verify_hypothesis(truth, hypothesis): return "Mock Analysis: Your hypothesis is interesting!"
+
 try:
     from story.story_engine import get_story
 except ImportError:
@@ -124,6 +131,24 @@ def reveal_answer(hidden_story):
     """Reveal the hidden story text."""
     return gr.update(value=f"### 🕵️‍♂️ THE TRUTH:\n{hidden_story}", visible=True)
 
+def process_hypothesis(hypothesis_text, hidden_story, history):
+    """
+    Process the player's hypothesis and get AI feedback.
+    Adds both the hypothesis and analysis to the chat history.
+    """
+    if not hypothesis_text or not hypothesis_text.strip():
+        return "", history, gr.update()
+    
+    # Get the AI analysis
+    analysis = verify_hypothesis(hidden_story, hypothesis_text)
+    
+    # Add to chat history
+    history = history or []
+    history.append({"role": "user", "content": f"🎯 **My Theory:** {hypothesis_text}"})
+    history.append({"role": "assistant", "content": analysis})
+    
+    return "", history, gr.update(visible=True)
+
 def toggle_audio(current_path_state, audio_component_value):
     if audio_component_value is not None:
         return None, "🔇 Audio Off (Click to Play)"
@@ -180,6 +205,18 @@ with gr.Blocks(title="Dark Stories AI") as demo:
                 )
                 hint_btn = gr.Button("💡", variant="secondary", scale=1, min_width=0)
                 submit_btn = gr.Button("➤", variant="primary", scale=1, min_width=0)
+            
+            gr.Markdown("### 🎯 Submit Your Theory")
+            gr.Markdown("*Think you've solved the mystery? Describe what happened:*")
+            with gr.Row():
+                hypothesis_input = gr.Textbox(
+                    show_label=False,
+                    placeholder="Explain your complete theory of what happened...",
+                    scale=7,
+                    container=False,
+                    lines=2
+                )
+                hypothesis_btn = gr.Button("🎯 Verify", variant="primary", scale=1, min_width=80)
 
     # --- EVENT LISTENERS ---
     
@@ -228,6 +265,19 @@ with gr.Blocks(title="Dark Stories AI") as demo:
         inputs=[hidden_story_state],
         outputs=[answer_box]
     )
+
+    # 6. Hypothesis Verification Logic
+    hypothesis_btn.click(
+        fn=process_hypothesis,
+        inputs=[hypothesis_input, hidden_story_state, chatbot],
+        outputs=[hypothesis_input, chatbot, answer_box]
+    ).then(fn=None, js=js_scroll_chat)
+    
+    hypothesis_input.submit(
+        fn=process_hypothesis,
+        inputs=[hypothesis_input, hidden_story_state, chatbot],
+        outputs=[hypothesis_input, chatbot, answer_box]
+    ).then(fn=None, js=js_scroll_chat)
 
 if __name__ == "__main__":
     output_dir = os.path.join(os.getcwd(), "outputs")

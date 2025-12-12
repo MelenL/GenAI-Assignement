@@ -27,46 +27,47 @@ FEW_SHOT_EXAMPLES = """
 Example 1:
 Topic: Modern Crime
 Difficulty: Detective
-Short Story: A man lies dead in the middle of a snowy field. There are no footprints leading to or from the body.
-Full Story: The man was a stowaway in an airplane's landing gear compartment. He froze to death during the flight and fell when the landing gear opened as the plane prepared to land. That's why there are no footprints - he fell from the sky.
+Short Story: A man is found dead in the middle of a snowy field. There are no footprints leading to or from the body.
+Full Story: The man fell from an airplane during landing. He died during the flight and dropped into the snow, so nobody ever walked to the body.
 
 Example 2:
 Topic: Cyberpunk
 Difficulty: Sherlock
-Short Story: A high-profile databroker was found 'flatlined' in a locked server room. The cooling system was disabled, and all security logs were wiped.
-Full Story: The broker wasn't murdered by another person. He attempted to upload his consciousness to the net using illegal neural-link technology. However, a firewall AI detected the intrusion and trapped his consciousness halfway through the transfer, causing his brain to overheat and shut down. The cooling system was disabled as part of his upload preparation, and he wiped the logs himself to hide the illegal procedure.
+Short Story: A high-profile databroker was found dead in a locked server room. The cooling system was disabled, and the security logs were wiped.
+Full Story: The broker tried to run an illegal mind-upload in the server room. The procedure overheated and killed him. He wiped the logs himself to hide what he was doing.
 
 Example 3:
 Topic: Medieval
 Difficulty: Detective
 Short Story: The King's favorite jester was found dead in the moat, still wearing his bells. The water is shallow.
-Full Story: The King pushed him. The Jester was secretly having an affair with the Queen, and the King found a love letter hidden in the jester's cap. In a fit of rage, the King threw him from the castle wall into the shallow moat below, where he drowned.
+Full Story: The King killed him by throwing him from the castle wall. The jester was punished for betraying the King, and the fall left him unable to save himself in the water.
 
 Example 4:
 Topic: 80s Horror
 Difficulty: Rookie
 Short Story: A teenager is found dead in a video rental store, tangled in VHS tape. The TV is playing static.
-Full Story: He wasn't killed by a person or supernatural force. He tried to fix a jammed VCR while it was still plugged in. He got electrocuted, panicked, and fell backward, pulling the VHS tape with him and getting tangled as he collapsed.
+Full Story: It was an accident. He was electrocuted while trying to fix a VCR and collapsed, pulling down VHS tape that tangled around him.
 
 Example 5:
 Topic: Cyberpunk
 Difficulty: Rookie
 Short Story: A woman is found dead in her apartment. Her smart home AI keeps apologizing.
-Full Story: The woman had a severe allergy to bee stings. She asked her smart home AI to order flowers for her mother's birthday. The AI, trying to be helpful, ordered live flowers with the pot still containing soil and insects. A bee was in the shipment. She was stung and went into anaphylactic shock. The AI, detecting her distress but unable to call emergency services due to a network outage, could only apologize.
+Full Story: The woman had a severe allergy. The AI ordered something that triggered it, and she died before she could get help.
 
 Example 6:
 Topic: Modern Crime
 Difficulty: Sherlock
 Short Story: A famous chef is found dead in his restaurant kitchen. All the knives are in place, and there's no sign of struggle.
-Full Story: The chef was poisoned by his own signature dish. A rival chef discovered that one of the ingredients in his secret recipe, when combined with his heart medication, becomes lethal. The rival sent him an anonymous gift basket containing a rare spice that would trigger the deadly reaction. The chef, excited to try it, used it in his meal prep and tasted his own creation, dying from the interaction between the spice, his recipe ingredients, and his medication.
+Full Story: The chef was poisoned. Someone sent him a “special ingredient” that turned out to be toxic, and he tasted it while cooking.
 """
+
 
 
 # ==========================================
 # DIFFICULTY LEVEL GUIDELINES
 # ==========================================
 DIFFICULTY_GUIDELINES = {
-    "Rookie": "The solution should be relatively straightforward with clear clues. The mystery involves common scenarios and logical deduction. Players should solve it with 5-10 questions.",
+    "Rookie": "One twist only. 2-3 key facts total. No elaborate contraptions, no obscure knowledge. Solvable in 5-10 yes/no questions.",
     "Detective": "The solution requires lateral thinking and attention to detail. The mystery involves unexpected twists but remains grounded in logic. Players should solve it with 10-20 questions.",
     "Sherlock": "The solution is highly complex with multiple layers of misdirection. The mystery involves obscure knowledge, multiple interconnected details, and requires exceptional deductive reasoning. Players may need 20+ questions."
 }
@@ -108,6 +109,24 @@ class StoryEngine:
         4. All details must be consistent and fact-based (no magic unless topic is supernatural)
         5. The mystery should be solvable through yes/no questions
         6. Avoid clichés - be creative and original
+
+        DIFFICULTY CONSTRAINTS (must follow):
+        - Rookie:
+            - Exactly ONE twist.
+            - At most ONE hidden action/event the player must discover.
+            - No elaborate contraptions, no multi-step engineered setups.
+            - No obscure knowledge required.
+            - Cause of death must be a common accident or simple human action.
+            - 2-3 key facts total (who/where/how).
+
+        - Detective:
+            - ONE main twist + one supporting detail.
+            - At most TWO hidden facts.
+            - No highly technical or obscure mechanisms.
+
+        - Sherlock:
+            - Multiple layers allowed, but still must be logically consistent.
+
         
         FORMAT YOUR RESPONSE EXACTLY AS:
         SHORT STORY:
@@ -136,7 +155,9 @@ class StoryEngine:
         }
         
         Now create a NEW, ORIGINAL dark story for the topic "{topic}" with difficulty level "{difficulty}".
-        Make it creative and different from the examples.
+        For Rookie: prioritize fairness and guessability over novelty. Keep the solution simple.
+        For Detective/Sherlock: you may increase originality and complexity.
+
         
         Remember to format your response as:
         SHORT STORY:
