@@ -7,6 +7,7 @@ import traceback
 
 # Import CSS
 from css.custom_css import custom_css, js_scroll_chat
+from story.story_engine import get_story
 
 # Try to import the art module
 try:
@@ -25,43 +26,17 @@ except ImportError:
     def analyze_question_with_llm(q, truth, summary): return "Mock Answer: Yes"
     def generate_hint_with_llm(hist, truth, summary): return "Mock Hint: Check the ceiling."
 
+try:
+    from story.story_engine import get_story
+except ImportError:
+    print("WARNING: could not import story.story_engine — using mock logic.")
+    def get_story(topic, difficulty): return "Mock Summary", "Mock Hidden Story"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[logging.StreamHandler(), logging.FileHandler("debug.log", encoding="utf-8")]
 )
-
-# ==========================================
-# 1. MOCK STORY DATABASE
-# ==========================================
-STORY_DB = {
-    "Cyberpunk": {
-        "summary": "A high-profile databroker was found 'flatlined' in a locked server room. The cooling system was disabled.",
-        "hidden_full_story": "The broker wasn't murdered. He tried to upload his consciousness to the net, but a firewall AI trapped him halfway, overheating his brain."
-    },
-    "Medieval": {
-        "summary": "The King's favorite jester was found dead in the moat, still wearing his bells. The water is shallow.",
-        "hidden_full_story": "The King pushed him. The Jester was secretly having an affair with the Queen, and the King found a love letter in his cap."
-    },
-    "Modern Crime": {
-        "summary": "A man lies dead in the middle of a snowy field. There are no footprints leading to or from the body.",
-        "hidden_full_story": "He was a stowaway in an airplane's landing gear compartment. He froze to death and fell when the gear opened for landing."
-    },
-    "80s Horror": {
-        "summary": "A teenager is found dead in a video rental store, tangled in VHS tape. The TV is playing static.",
-        "hidden_full_story": "He wasn't killed by a person. He tried to fix a jammed VCR while it was plugged in, got shocked, and panicked, entangling himself in the tape as he fell."
-    }
-}
-
-class MockStoryEngine:
-    def get_story(self, topic, options=None):
-        if topic in STORY_DB:
-            data = STORY_DB[topic]
-            return data["summary"], data["hidden_full_story"]
-        else:
-            return "No story found for this topic.", "N/A"
-
-story_engine = MockStoryEngine()
 
 # ==========================================
 # 2. GRADIO APP LOGIC
@@ -84,7 +59,7 @@ def generate_case_data(topic, difficulty, progress=gr.Progress()):
     progress(0.1, desc="Consulting Archive...")
     time.sleep(0.5) 
     
-    summary, hidden_story = story_engine.get_story(topic)
+    summary, hidden_story = get_story(topic, difficulty)
     
     progress(0.3, desc="Generating Visuals & Audio...")
     img_path, audio_path, logs = None, None, ""
