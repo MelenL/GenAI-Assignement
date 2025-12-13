@@ -112,14 +112,14 @@ def generate_story_assets(theme: str, story_summary: str, story_full: str, gener
             )
         else:
             # If we dont want to generate music, fall back to a default placeholder audio
-            audio_path = os.path.join(PROJECT_ROOT, "assets", "gemini_story_theme.wav")
+            audio_path = os.path.join(PROJECT_ROOT, "outputs", "audio", "gemini_story_theme.wav")
         
         # Verify file actually exists
         if os.path.exists(audio_path):
             status_log.append(" Audio generated.")
         else:
             status_log.append(" Audio file not found after generation.")
-            audio_path = os.path.join(PROJECT_ROOT, "assets", "gemini_story_theme.wav")
+            audio_path = os.path.join(PROJECT_ROOT, "outputs", "audio", "gemini_story_theme.wav")
             
     except Exception as e:
         status_log.append(f" Music generation crashed: {str(e)}")
