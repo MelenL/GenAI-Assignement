@@ -26,7 +26,15 @@ if API_KEY:
 # RAG ENGINE
 # ==========================================
 class RAG_Engine:
-    def __init__(self, data_path=os.path.join(os.path.dirname(__file__), "data\\stories.json"), embeddings_path=os.path.join(os.path.dirname(__file__), "data\\embeddings.json")):
+    def __init__(
+        self,
+        data_path=os.path.join(
+            os.path.dirname(__file__), "data", "stories.json"
+        ),
+        embeddings_path=os.path.join(
+            os.path.dirname(__file__), "data", "embeddings.json"
+        ),
+    ):
         self.examples = []
         self.embeddings = []  # Cache for example embeddings
         self.data_path = data_path
