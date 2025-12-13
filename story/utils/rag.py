@@ -3,18 +3,27 @@ import logging
 import json
 import random
 import math
+import hashlib
+import numpy as np
+
+from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
 
+# ------------------------------------------
 # Setup Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# ------------------------------------------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+# ------------------------------------------
 # Load env variables
+# ------------------------------------------
 load_dotenv()
 API_KEY = os.environ.get("GOOGLE_API_KEY")
 
+# ------------------------------------------
 # Initialize Client
+# ------------------------------------------
 client = None
 if API_KEY:
     try:
@@ -26,161 +35,197 @@ if API_KEY:
 # RAG ENGINE
 # ==========================================
 class RAG_Engine:
+    EMBEDDING_MODEL = "text-embedding-004"
+    DIFFICULTY_BOOST = 0.05  # Soft preference, not a hard filter
+
     def __init__(
         self,
-        data_path=os.path.join(
-            os.path.dirname(__file__), "data", "stories.json"
-        ),
-        embeddings_path=os.path.join(
-            os.path.dirname(__file__), "data", "embeddings.json"
-        ),
+        data_path=os.path.join(os.path.dirname(__file__), "data", "stories.json"),
+        embeddings_path=os.path.join(os.path.dirname(__file__), "data", "embeddings.json"),
     ):
-        self.examples = []
-        self.embeddings = []  # Cache for example embeddings
         self.data_path = data_path
         self.embeddings_path = embeddings_path
-        self.load_data(data_path)
 
-    def load_data(self, path):
+        self.examples = []
+        self.embeddings = {}  # {hash: embedding}
+
+        self.load_data()
+        self._load_embeddings_from_disk()
+
+    # --------------------------------------
+    # Data Loading
+    # --------------------------------------
+    def load_data(self):
         try:
-            if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
+            if os.path.exists(self.data_path):
+                with open(self.data_path, "r", encoding="utf-8") as f:
                     self.examples = json.load(f)
-                logging.info(f"Loaded {len(self.examples)} examples from {path}")
+                logging.info(f"Loaded {len(self.examples)} examples.")
             else:
-                logging.warning(f"Data file not found at {path}. RAG will return empty.")
+                logging.warning("Story data file not found.")
         except Exception as e:
-            logging.error(f"Error loading RAG data: {e}")
+            logging.error(f"Failed to load story data: {e}")
 
-    def _get_embedding(self, text, client):
-        """Generates an embedding vector for a text string using Gemini."""
+    # --------------------------------------
+    # Embedding Utilities
+    # --------------------------------------
+    def _example_text(self, ex: dict) -> str:
+        """
+        Canonical text used for embeddings.
+        Query text MUST match this structure.
+        """
+        return (
+            f"Story topic: {ex.get('topic', '')}. "
+            f"Genre and difficulty: {ex.get('difficulty', '')}. "
+            f"Premise: {ex.get('short_story', '')}"
+        )
+
+    def _hash_text(self, text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def _get_embedding(self, text: str, client) -> list:
         try:
             result = client.models.embed_content(
-                model="text-embedding-004",
-                contents=text
+                model=self.EMBEDDING_MODEL,
+                contents=text,
             )
-            if hasattr(result, 'embeddings'):
-                return result.embeddings[0].values
-            return []
+            return result.embeddings[0].values
         except Exception as e:
             logging.warning(f"Embedding failed: {e}")
             return []
 
-    def _cosine_similarity(self, vec1, vec2):
-        if not vec1 or not vec2: return 0.0
-        dot_product = sum(a * b for a, b in zip(vec1, vec2))
-        norm_a = math.sqrt(sum(a * a for a in vec1))
-        norm_b = math.sqrt(sum(b * b for b in vec2))
-        if norm_a == 0 or norm_b == 0: return 0.0
-        return dot_product / (norm_a * norm_b)
-
-    def _populate_embeddings(self, client):
-        """Lazy loads embeddings. Checks disk cache first, then API."""
-        if self.embeddings:
+    # --------------------------------------
+    # Embedding Cache
+    # --------------------------------------
+    def _load_embeddings_from_disk(self):
+        if not os.path.exists(self.embeddings_path):
             return
-
-        # 1. Try Loading from Disk
-        if os.path.exists(self.embeddings_path):
-            try:
-                with open(self.embeddings_path, 'r', encoding='utf-8') as f:
-                    loaded_embeddings = json.load(f)
-                if len(loaded_embeddings) == len(self.examples):
-                    self.embeddings = loaded_embeddings
-                    logging.info(f"Loaded {len(self.embeddings)} embeddings from disk cache.")
-                    return
-                else:
-                    logging.warning("Cached embeddings count mismatch. Regenerating...")
-            except Exception as e:
-                logging.warning(f"Failed to load embeddings from disk: {e}")
-
-        # 2. Generate via API
-        logging.info("Generating new embeddings via API...")
-        generated_embeddings = []
-        for ex in self.examples:
-            # We embed Topic + Short Story to capture the "Vibe"
-            content = f"{ex.get('topic', '')}: {ex.get('short_story', '')}"
-            emb = self._get_embedding(content, client)
-            generated_embeddings.append(emb)
-        
-        self.embeddings = generated_embeddings
-
-        # 3. Save to Disk
         try:
-            with open(self.embeddings_path, 'w', encoding='utf-8') as f:
+            with open(self.embeddings_path, "r", encoding="utf-8") as f:
+                self.embeddings = json.load(f)
+            logging.info(f"Loaded {len(self.embeddings)} cached embeddings.")
+        except Exception as e:
+            logging.warning(f"Failed to load embeddings cache: {e}")
+
+    def _save_embeddings_to_disk(self):
+        try:
+            with open(self.embeddings_path, "w", encoding="utf-8") as f:
                 json.dump(self.embeddings, f)
         except Exception as e:
             logging.error(f"Failed to save embeddings cache: {e}")
 
-    def get_examples(self, target_topic, target_difficulty, client=None, k=3):
-        """
-        Retrieves k examples using Hybrid Filtering:
-        1. Filter by Difficulty (Metadata)
-        2. Rank by Topic Similarity (Vector)
-        """
+    def _ensure_embeddings(self, client):
+        updated = False
+
+        for ex in self.examples:
+            text = self._example_text(ex)
+            text_hash = self._hash_text(text)
+
+            if text_hash not in self.embeddings:
+                emb = self._get_embedding(text, client)
+                if emb:
+                    self.embeddings[text_hash] = emb
+                    updated = True
+
+        if updated:
+            self._save_embeddings_to_disk()
+
+    # --------------------------------------
+    # Similarity
+    # --------------------------------------
+    # Manual cosine similarity implementation (commented out in favor of sklearn)
+    # def _cosine_similarity(self, a: list, b: list) -> float:
+    #     if not a or not b:
+    #         return 0.0
+    #     dot = sum(x * y for x, y in zip(a, b))
+    #     norm_a = math.sqrt(sum(x * x for x in a))
+    #     norm_b = math.sqrt(sum(y * y for y in b))
+    #     if norm_a == 0 or norm_b == 0:
+    #         return 0.0
+    #     return dot / (norm_a * norm_b)
+
+    def _cosine_similarity(self, a: list, b: list) -> float:
+        if not a or not b:
+            return 0.0
+
+        a = np.array(a).reshape(1, -1)
+        b = np.array(b).reshape(1, -1)
+
+        return float(cosine_similarity(a, b)[0][0])
+
+    # --------------------------------------
+    # Public API
+    # --------------------------------------
+    def get_examples(
+        self,
+        user_prompt: str,
+        target_difficulty: str,
+        client=None,
+        k: int = 3,
+    ) -> str:
         if not self.examples:
             return ""
 
-        # --- STEP 1: METADATA FILTERING ---
-        # Find indices of examples that match the difficulty
-        candidate_indices = [
-            i for i, ex in enumerate(self.examples) 
-            if ex.get('difficulty', '').lower() == target_difficulty.lower()
-        ]
-
-        # Fallback: If not enough exact difficulty matches, use ALL examples
-        if len(candidate_indices) < k:
-            logging.info(f"Not enough '{target_difficulty}' examples ({len(candidate_indices)}). Searching full database.")
-            candidate_indices = range(len(self.examples))
-        else:
-            logging.info(f"Filtered down to {len(candidate_indices)} '{target_difficulty}' examples.")
-
-        selected_indices = []
-
-        # --- STEP 2: SEMANTIC SEARCH (Vectors) ---
         if client:
-            try:
-                self._populate_embeddings(client)
-                
-                if self.embeddings:
-                    # Embed the query
-                    query_vec = self._get_embedding(target_topic, client)
-                    
-                    if query_vec:
-                        scores = []
-                        # Only score the filtered candidates
-                        for idx in candidate_indices:
-                            score = self._cosine_similarity(query_vec, self.embeddings[idx])
-                            scores.append((score, idx))
-                        
-                        # Sort by similarity
-                        scores.sort(key=lambda x: x[0], reverse=True)
-                        selected_indices = [item[1] for item in scores[:k]]
-            
-            except Exception as e:
-                logging.warning(f"Semantic search error: {e}")
+            self._ensure_embeddings(client)
 
-        # --- STEP 3: FALLBACK (Keyword/Random) ---
-        if not selected_indices:
-            # If vector search failed, pick random from candidates
-            selected_indices = random.sample(candidate_indices, min(k, len(candidate_indices)))
+        # Build query text aligned with example embeddings
+        query_text = (
+            f"Story idea: {user_prompt}. "
+            f"Intended difficulty: {target_difficulty}. "
+            f"This is a narrative premise."
+        )
 
-        # Format output
-        selected_examples = [self.examples[i] for i in selected_indices]
-        
-        formatted_output = ""
-        for i, ex in enumerate(selected_examples, 1):
-            formatted_output += f"\nExample {i}:\n"
-            formatted_output += f"Topic: {ex.get('topic', 'Unknown')}\n"
-            formatted_output += f"Difficulty: {ex.get('difficulty', 'Unknown')}\n"
-            formatted_output += f"Short Story: {ex.get('short_story')}\n"
-            formatted_output += f"Full Story: {ex.get('full_story')}\n"
-        
-        return formatted_output
-    
+        query_vec = self._get_embedding(query_text, client) if client else []
+
+        scored = []
+
+        for ex in self.examples:
+            text = self._example_text(ex)
+            text_hash = self._hash_text(text)
+            emb = self.embeddings.get(text_hash)
+
+            score = 0.0
+            if query_vec and emb:
+                score = self._cosine_similarity(query_vec, emb)
+
+            # Soft difficulty boost
+            if ex.get("difficulty", "").lower() == target_difficulty.lower():
+                score += self.DIFFICULTY_BOOST
+
+            scored.append((score, ex))
+
+        # Sort by relevance
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        # Fallback if embeddings failed
+        if not any(score > 0 for score, _ in scored):
+            selected = random.sample(self.examples, min(k, len(self.examples)))
+        else:
+            selected = [ex for _, ex in scored[:k]]
+
+        # ----------------------------------
+        # Format Output (Inspirational Only)
+        # ----------------------------------
+        output = ""
+        for i, ex in enumerate(selected, 1):
+            output += f"\nExample {i}:\n"
+            output += f"Topic: {ex.get('topic', 'Unknown')}\n"
+            output += f"Difficulty: {ex.get('difficulty', 'Unknown')}\n"
+            output += f"Premise: {ex.get('short_story', '')}\n"
+
+        return output
+
+
+# ------------------------------------------
+# Manual Test
+# ------------------------------------------
 if __name__ == "__main__":
-    RAG_Engine = RAG_Engine()
-    if client:
-        examples = RAG_Engine.get_examples("Cyberpunk", client=client, k=2)
-    else:
-        examples = RAG_Engine.get_examples("Cyberpunk", client=None, k=2)
+    engine = RAG_Engine()
+    examples = engine.get_examples(
+        user_prompt="A fairy tale about a cursed forest and a forgotten prince",
+        target_difficulty="Detective",
+        client=client,
+        k=2,
+    )
     print(examples)

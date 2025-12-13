@@ -86,7 +86,7 @@ class StoryEngine:
         if not self.client:
             logging.warning("StoryEngine initialized without valid API client.")
 
-    def get_story(self, topic, difficulty="Detective", options=None, use_rag=False):
+    def get_story(self, user_prompt, difficulty="Detective", options=None, use_rag=False):
         if not self.client:
             raise Exception("Story generation unavailable: API client not initialized")
 
@@ -141,20 +141,20 @@ class StoryEngine:
         user_prompt = f"""
         Generate a dark story with the following parameters:
         
-        TOPIC: {topic}
+        TOPIC: {user_prompt}
         DIFFICULTY: {difficulty}
         DIFFICULTY REQUIREMENTS: {difficulty_guide}
         
         Here are examples of well-crafted dark stories:
         {FEW_SHOT_EXAMPLES if not use_rag else RAG_Engine.get_examples(
-                                                                        target_topic=topic, 
+                                                                        user_prompt=user_prompt, 
                                                                         target_difficulty=difficulty, 
                                                                         client=self.client, 
-                                                                        k=3
+                                                                        k=7
                                                                     )
         }
-        
-        Now create a NEW, ORIGINAL dark story for the topic "{topic}" with difficulty level "{difficulty}".
+
+        Now create a NEW, ORIGINAL dark story for the prompt "{user_prompt}" with difficulty level "{difficulty}".
         For Rookie: prioritize fairness and guessability over novelty. Keep the solution simple.
         For Detective/Sherlock: you may increase originality and complexity.
 
@@ -167,8 +167,10 @@ class StoryEngine:
         [complete solution]
         """
 
+        print(f"system_instruction={system_instruction}")
+
         try:
-            logging.info(f"Generating story: topic={topic}, difficulty={difficulty}")
+            logging.info(f"Generating story: user_prompt={user_prompt}, difficulty={difficulty}")
 
             response = self.client.models.generate_content(
                 model='gemini-2.0-flash',  # Using the latest model
@@ -190,7 +192,7 @@ class StoryEngine:
 
         except Exception as e:
             logging.error(f"Story generation failed: {e}")
-            return self._get_fallback_story(topic)
+            return self._get_fallback_story(user_prompt)
 
     def _parse_story_response(self, response_text):
         try:
@@ -207,12 +209,12 @@ class StoryEngine:
             mid = len(response_text) // 2
             return response_text[:mid].strip(), response_text[mid:].strip()
 
-    def _get_fallback_story(self, topic):
+    def _get_fallback_story(self, user_prompt):
         """
         Provide a fallback story if generation fails.
 
         Args:
-            topic (str): The requested topic
+            user_prompt (str): The requested user prompt
 
         Returns:
             tuple: (short_story, full_story)
@@ -236,9 +238,9 @@ class StoryEngine:
             )
         }
 
-        if topic in fallback_stories:
-            logging.info(f"Using fallback story for {topic}")
-            return fallback_stories[topic]
+        if user_prompt in fallback_stories:
+            logging.info(f"Using fallback story for {user_prompt}")
+            return fallback_stories[user_prompt]
         else:
             return (
                 "A mysterious figure is found in an unusual circumstance. The details are unclear.",
@@ -248,9 +250,9 @@ class StoryEngine:
 # ==========================================
 # MODULE-LEVEL CONVENIENCE FUNCTION
 # ==========================================
-def get_story(topic, difficulty="Detective", use_rag=False, options=None):
+def get_story(user_prompt, difficulty="Detective", use_rag=False, options=None):
     engine = StoryEngine()
-    return engine.get_story(topic, difficulty, use_rag=use_rag, options=options)
+    return engine.get_story(user_prompt, difficulty, use_rag=use_rag, options=options)
 
 # ==========================================
 # MAIN - FOR TESTING
@@ -284,4 +286,4 @@ if __name__ == "__main__":
     #             print(f"\n❌ Error: {e}")
 
     # Example of using RAG
-    print(get_story("Cyberpunk", "Detective", use_rag=True))
+    print(get_story("A fairy tale about a cursed forest and a forgotten prince", "Detective", use_rag=True))

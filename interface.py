@@ -202,9 +202,9 @@ with gr.Blocks(title="Dark Stories AI") as demo:
         gr.Markdown("#### Initialize Investigation")
 
         with gr.Row():
-            topic_input = gr.Dropdown(
-                ["Modern Crime", "Cyberpunk", "Medieval", "80s Horror"],
+            topic_input = gr.Textbox(
                 label="Setting",
+                placeholder="Enter a custom setting or topic…",
                 value="80s Horror",
                 scale=1
             )
@@ -261,12 +261,13 @@ with gr.Blocks(title="Dark Stories AI") as demo:
 
             with gr.Row(elem_id="question_row"):
                 msg_input = gr.Textbox(
-                    show_label=False,
-                    placeholder="Ask a yes/no question about the case…",
-                    scale=7,
-                    container=False,
-                    elem_id="question_box"
-                )
+                        show_label=False,
+                        placeholder="Ask a yes/no question…",
+                        scale=7,
+                        container=False,
+                        lines=2,
+                        elem_id="question_box"
+                    )
                 hint_btn = gr.Button("HINT", variant="secondary", scale=1, min_width=0, elem_id="hint_btn")
                 submit_btn = gr.Button("ASK", variant="primary", scale=1, min_width=0, elem_id="ask_btn")
 
