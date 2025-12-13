@@ -1,27 +1,9 @@
-# Core
 gradio==6.0.2
 google-genai>=1.0
 python-dotenv>=1.0
 requests>=2.31
 numpy>=1.24,<2
-scikit-learn==1.8.0
-
-# Images / models (remove if only using remote APIs)
-pillow>=9.0
-diffusers>=0.25
-transformers>=4.34
-
-# Optional local ML
-torch>=2.1
-torchvision>=0.16
-accelerate>=0.22
-
-# Audio
 pydub>=0.25
 soundfile>=0.12
 ffmpeg-python==0.2.0
-
-# Utilities
-ffmpeg-python==0.2.0
-
 scipy>=1.10,<2

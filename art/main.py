@@ -5,7 +5,6 @@ import random
 from PIL import Image
 logging.basicConfig(level=logging.INFO)
 from .utils.gemini_gen import setup_gemini, generate_multimedia_concepts, generate_image_gemini
-from .utils.local_music_gen import generate_game_music
 
 def generate_story_assets(theme: str, story_summary: str, story_full: str, generate_game_music=True):
     """
@@ -98,31 +97,21 @@ def generate_story_assets(theme: str, story_summary: str, story_full: str, gener
             image_path = None
             image_success = False
 
-    # 4. Generate Audio
-    print("\n[3/3] Generating Audio (Local GPU)...")
+    # 4. Use pre-generated audio (music generation disabled for deployment)
+    print("\n[3/3] Using pre-generated audio...")
     try:
-        # MusicGen is heavy. We wrap it tightly to prevent crashing the whole app if VRAM is full.
-        if generate_game_music:
-            generate_game_music(
-                    base_prompt=concepts['music_prompt'],
-                style_options=None, # Gemini provided full context in base_prompt
-                duration=45,
-                output_filename=audio_path,
-                model_size="small" # Keep small for speed, change to 'medium' for quality
-            )
-        else:
-            # If we dont want to generate music, fall back to a default placeholder audio
-            audio_path = os.path.join(PROJECT_ROOT, "outputs", "audio", "gemini_story_theme.wav")
-        
-        # Verify file actually exists
+        # Use the default pre-generated audio file
+        audio_path = os.path.join(PROJECT_ROOT, "outputs", "audio", "gemini_story_theme.wav")
+
+        # Verify file exists
         if os.path.exists(audio_path):
-            status_log.append(" Audio generated.")
+            status_log.append(" Pre-generated audio loaded.")
         else:
-            status_log.append(" Audio file not found after generation.")
-            audio_path = os.path.join(PROJECT_ROOT, "outputs", "audio", "gemini_story_theme.wav")
-            
+            status_log.append(" Warning: Pre-generated audio file not found.")
+            audio_path = None
+
     except Exception as e:
-        status_log.append(f" Music generation crashed: {str(e)}")
+        status_log.append(f" Audio loading failed: {str(e)}")
         audio_path = None
 
     # 5. Return results    
